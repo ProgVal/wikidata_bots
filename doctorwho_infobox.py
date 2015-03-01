@@ -82,6 +82,8 @@ def enrich_entity(entity):
     enrich_entity_target(entity, page_data, properties.director, 'director')
 
 entity = pywikibot.ItemPage(repo, 'Q1768718')
-enrich_entity(entity)
-#entity = entity.text['claims'][properties.followedby][0].getTarget()
-#enrich_entity(entity)
+while True:
+    enrich_entity(entity)
+    if entity.id == 'Q1768716': # temporary
+        break
+    entity = entity.text['claims'][properties.followedby][0].getTarget()
