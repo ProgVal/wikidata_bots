@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+import re
 import time
 import datetime
 from pprint import pprint
 import pywikibot
+import mwparserfromhell
 
 today = datetime.date.today()
 
@@ -47,57 +49,64 @@ def set_property(entity, pid, value, imported=True):
         # Add the source
         claim.addSources([statedin, retrieved])
 
-def enrich_entity_imdb(entity, page_data):
+def enrich_entity_imdb(entity, infobox):
     if properties.imdb not in entity.text['claims']:
-        print('Trying to set IMDB id for %s' % entity.id)
-        if 'imdb_id' in page_data:
-            imdb_id = 'tt' + page_data['imdb_id']
+        print('\tTrying to set IMDB id for %s' % entity.id)
+        if 'imdb_id' in [x.split('=')[0] for x in infobox.params]:
+            imdb_id = 'tt' + infobox.get('imdb_id').split('=')[1].strip()
             set_property(entity, properties.imdb, imdb_id)
         else:
-            print('No IMDB id.')
+            print('\tNo IMDB id.')
     else:
-        print('IMDB id already set')
+        print('\tIMDB id already set')
 
-def enrich_entity_target(entity, page_data, property, infobox_name):
+def enrich_entity_target(entity, infobox, property, infobox_name):
     if property not in entity.text['claims']:
-        print('Trying to set property %s for %s' % (property, entity.id))
-        for value_name in page_data[infobox_name].split('<br>'):
+        print('\tTrying to set property %s for %s' % (property, entity.id))
+        value = infobox.get(infobox_name).split('=', 1)[1]
+        for value_name in value.split('<br>'):
+            value_name = value_name.strip('\'')
             assert value_name.startswith('[['), value_name
             assert ']]' in value_name, value_name
             value_name = value_name[2:].split(']]', 1)[0]
-            print(value_name)
             value_page = pywikibot.Page(enwiki, value_name)
-            print(value_page)
             value = pywikibot.ItemPage.fromPage(value_page)
             set_property(entity, property, value)
     else:
-        print('%s already set' % property)
+        print('\t%s already set' % property)
 
 def enrich_entity_previous(entity, previous):
     if properties.follows not in entity.text['claims']:
-        print('Trying to set property "follows" for %s' % (entity.id,))
+        print('\tTrying to set property "follows" for %s' % (entity.id,))
         set_property(entity, properties.follows, previous, imported=False)
     else:
-        print('"follows" already set')
-        print(entity.text['claims'][properties.follows][0].getTarget())
-        print(previous)
+        print('\t"follows" already set')
         assert entity.text['claims'][properties.follows][0].getTarget() == previous
 
 def enrich_entity(entity, previous):
+    if any(x not in entity.descriptions for x in ('en', 'fr')):
+        descriptions = {
+                'en': 'Doctor Who serial',
+                'fr': 'épisode de Doctor Who',
+                }
+        descriptions.update(entity.descriptions)
+        print('\tAdding description')
+        entity.editEntity({'descriptions': descriptions})
+
     page = pywikibot.Page(site, entity.text['sitelinks']['enwiki'])
-    infobox = page.text \
-            .split('\n{{Infobox Doctor Who episode\n', 1)[1] \
-            .split('\n|}}\n', 1)[0]
-    assert '{{' not in infobox
-    page_data = dict(line.split('=') for line in infobox.split('\n|'))
-    pprint(page_data)
-    enrich_entity_imdb(entity, page_data)
+    templates = mwparserfromhell.parse(page.text).filter_templates()
+    infoboxes = [x for x in templates
+                 if x.name.strip() == 'Infobox Doctor Who episode']
+    assert len(infoboxes) == 1, infoboxes
+    infobox = infoboxes[0]
+    enrich_entity_imdb(entity, infobox)
     if previous:
-        print('Has previous')
+        print('\tHas previous')
         enrich_entity_previous(entity, previous)
-    enrich_entity_target(entity, page_data, properties.producer, 'producer')
-    enrich_entity_target(entity, page_data, properties.screenwriter, 'writer')
-    enrich_entity_target(entity, page_data, properties.director, 'director')
+    enrich_entity_target(entity, infobox, properties.producer, 'producer')
+    enrich_entity_target(entity, infobox, properties.screenwriter, 'writer')
+    enrich_entity_target(entity, infobox, properties.director, 'director')
+    enrich_entity_target(entity, infobox, properties.followedby, 'following')
 
 previous=None
 entity = pywikibot.ItemPage(repo, 'Q1768718')
@@ -106,7 +115,11 @@ while True:
     assert entity.text['claims'][properties.series][0].getTarget().id == \
             entities.doctorwho
     enrich_entity(entity, previous)
-    if entity.id == 'Q1768716': # temporary
-        break
+    #if entity.id == 'Q1768716': # temporary
+    #    break
     previous = entity
-    entity = entity.text['claims'][properties.followedby][0].getTarget()
+    try:
+        entity = entity.text['claims'][properties.followedby][0].getTarget()
+    except KeyError:
+        print('Error: could not find “followed by” claim for %s' % entity.id)
+        exit(1)
