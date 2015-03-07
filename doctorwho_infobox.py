@@ -64,9 +64,11 @@ def enrich_entity_target(entity, infobox, property, infobox_name):
     if property not in entity.text['claims']:
         print('\tTrying to set property %s for %s' % (property, entity.id))
         value = infobox.get(infobox_name).split('=', 1)[1]
-        for value_name in value.split('<br>'):
-            value_name = value_name.strip('\'')
-            assert value_name.startswith('[['), value_name
+        for value_name in re.split(r'<br ?/?>', value):
+            value_name = value_name.strip(' \'"\n')
+            if not value_name:
+                continue
+            assert value_name.startswith('[['), repr(value_name)
             assert ']]' in value_name, value_name
             value_name = value_name[2:].split(']]', 1)[0]
             value_page = pywikibot.Page(enwiki, value_name)
