@@ -60,10 +60,12 @@ def enrich_entity_imdb(entity, infobox):
     else:
         print('\tIMDB id already set')
 
-def enrich_entity_target(entity, infobox, property, infobox_name):
+def enrich_entity_target(entity, infobox, property, infobox_name,
+        filter_=lambda x:x):
     if property not in entity.text['claims']:
         print('\tTrying to set property %s for %s' % (property, entity.id))
         value = infobox.get(infobox_name).split('=', 1)[1]
+        value = filter_(value)
         for value_name in re.split(r'<br ?/?>', value):
             value_name = value_name.strip(' \'"\n')
             if not value_name:
@@ -96,29 +98,40 @@ def enrich_entity(entity, previous):
         entity.editEntity({'descriptions': descriptions})
 
     page = pywikibot.Page(site, entity.text['sitelinks']['enwiki'])
-    templates = mwparserfromhell.parse(page.text).filter_templates()
+    templates = mwparserfromhell.parse('\n' + page.text).filter_templates()
     infoboxes = [x for x in templates
                  if x.name.strip() == 'Infobox Doctor Who episode']
     assert len(infoboxes) == 1, infoboxes
     infobox = infoboxes[0]
-    enrich_entity_imdb(entity, infobox)
+
+    # We use the filter for season 23, whose episodes links are like:
+    # [[The Trial of a Time Lord]]: [[The Mysterious Planet]]
+    enrich_entity_target(entity, infobox, properties.followedby, 'following',
+            filter_=lambda x:x.split(':', 1)[-1])
     if previous:
         print('\tHas previous')
         enrich_entity_previous(entity, previous)
+
+    enrich_entity_imdb(entity, infobox)
     enrich_entity_target(entity, infobox, properties.producer, 'producer')
     enrich_entity_target(entity, infobox, properties.screenwriter, 'writer')
     enrich_entity_target(entity, infobox, properties.director, 'director')
-    enrich_entity_target(entity, infobox, properties.followedby, 'following')
 
 previous=None
 entity = pywikibot.ItemPage(repo, 'Q1768718')
 while True:
     print(entity.id)
-    assert entity.text['claims'][properties.series][0].getTarget().id == \
-            entities.doctorwho
+    if entity.id == 'Q336240': # film
+        continue
+    if properties.series not in entity.text['claims'] and \
+            entity.get()['descriptions'].get('en', None) == 'Doctor Who serial':
+        set_property(entity, properties.series,
+                pywikibot.ItemPage(repo, entities.doctorwho))
+    else:
+        assert entity.text['claims'][properties.series][0].getTarget().id == \
+                entities.doctorwho
     enrich_entity(entity, previous)
-    #if entity.id == 'Q1768716': # temporary
-    #    break
+    entity = pywikibot.ItemPage(repo, entity.id) # reload
     previous = entity
     try:
         entity = entity.text['claims'][properties.followedby][0].getTarget()
