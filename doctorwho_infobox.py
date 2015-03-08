@@ -19,6 +19,7 @@ class properties:
     screenwriter = 'P58'
     director = 'P57'
     series = 'P179'
+    episodecount = 'P1113'
 class entities:
     enwiki = 'Q328'
     doctorwho = 'Q34316'
@@ -87,6 +88,19 @@ def enrich_entity_previous(entity, previous):
         print('\t"follows" already set')
         assert entity.text['claims'][properties.follows][0].getTarget() == previous
 
+def enrich_entity_episodecount(entity, infobox):
+    if entity.id == 'Q1768713':
+        print('\tSkipping episode count.')
+    elif properties.episodecount not in entity.text['claims']:
+        print('\tSetting episode count')
+        value = infobox.get('length').split('=', 1)[1]
+        assert ' episode' in value, value
+        value = int(value.split(' episode')[0])
+        value = pywikibot.WbQuantity(value)
+        set_property(entity, properties.episodecount, value)
+    else:
+        print('\tEpisode count already set')
+
 def enrich_entity(entity, previous):
     if any(x not in entity.descriptions for x in ('en', 'fr')):
         descriptions = {
@@ -116,13 +130,14 @@ def enrich_entity(entity, previous):
     enrich_entity_target(entity, infobox, properties.producer, 'producer')
     enrich_entity_target(entity, infobox, properties.screenwriter, 'writer')
     enrich_entity_target(entity, infobox, properties.director, 'director')
+    enrich_entity_episodecount(entity, infobox)
 
 previous=None
 entity = pywikibot.ItemPage(repo, 'Q1768718')
 while True:
     print(entity.id)
     if entity.id == 'Q336240': # film
-        continue
+        break
     if properties.series not in entity.text['claims'] and \
             entity.get()['descriptions'].get('en', None) == 'Doctor Who serial':
         set_property(entity, properties.series,
